@@ -63,10 +63,15 @@ window.addEventListener('load', () => {
       console.warn(
         '[PWA] beforeinstallprompt has not fired 5 s after load.\n' +
         '  Possible reasons:\n' +
-        '  • Chrome cooldown: site was previously offered install (clear site data to reset)\n' +
-        '  • PWA criteria not met: check Application → Manifest in DevTools\n' +
-        '  • App already installed on this device\n' +
-        '  • Running in incognito / unsupported browser',
+        '  • Chrome install cooldown: Chrome suppresses the event for ~90 days after a\n' +
+        '    dismissed prompt. Clearing site data does NOT reset this — it is stored in\n' +
+        "    Chrome's own profile, not the site's storage.\n" +
+        '    → To bypass on Android: open chrome://flags/#bypass-app-banner-engagement-checks\n' +
+        "      set it to 'Enabled', relaunch Chrome, then reload this page.\n" +
+        '  • PWA criteria not met: open DevTools → Issues panel (the badge next to the\n' +
+        '    console filters) — Chrome lists the exact failing criteria there.\n' +
+        '  • App already installed on this device (check Settings → Apps).\n' +
+        '  • Running in incognito / unsupported browser.',
       );
     }
   }, 5000);
