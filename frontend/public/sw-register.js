@@ -10,12 +10,15 @@ if ('serviceWorker' in navigator) {
     });
   } else {
     window.addEventListener('load', () => {
+      console.log('[SW] Registering service worker…');
       navigator.serviceWorker.register('/sw.js')
         .then((registration) => {
-          console.log('SW registered:', registration.scope);
+          console.log('[SW] Registered — scope:', registration.scope,
+            '| installing:', registration.installing?.state,
+            '| active:', registration.active?.state);
         })
         .catch((error) => {
-          console.log('SW registration failed:', error);
+          console.error('[SW] Registration FAILED:', error);
         });
     });
   }
