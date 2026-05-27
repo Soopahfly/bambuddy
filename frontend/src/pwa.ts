@@ -57,6 +57,29 @@ window.addEventListener('load', () => {
     console.warn('[PWA] navigator.serviceWorker not available');
   }
 
+  // Check if the PWA is already installed via getInstalledRelatedApps().
+  // Chrome automatically includes the current PWA in the returned list if it has
+  // already been installed — even without 'related_applications' in the manifest.
+  // An already-installed PWA suppresses beforeinstallprompt AND hides the
+  // ⋮ menu "Install app" option, which would explain both symptoms.
+  if ('getInstalledRelatedApps' in navigator) {
+    (navigator as unknown as { getInstalledRelatedApps: () => Promise<unknown[]> })
+      .getInstalledRelatedApps()
+      .then((apps) => {
+        if (apps.length > 0) {
+          console.warn('[PWA] getInstalledRelatedApps() returned', apps.length, 'app(s):', JSON.stringify(apps));
+          console.warn('[PWA] PWA appears to already be installed — Chrome suppresses beforeinstallprompt and hides the ⋮ Install option when the app is already installed. Check Settings → Apps for "Bambuddy".');
+        } else {
+          console.log('[PWA] getInstalledRelatedApps(): no installed PWA detected by Chrome');
+        }
+      })
+      .catch((err) => {
+        console.log('[PWA] getInstalledRelatedApps() not available:', err);
+      });
+  } else {
+    console.log('[PWA] getInstalledRelatedApps not supported in this browser');
+  }
+
   // If beforeinstallprompt hasn't fired 5 s after load, log possible reasons.
   setTimeout(() => {
     if (!_pendingPrompt) {
