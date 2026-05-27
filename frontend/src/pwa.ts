@@ -35,83 +35,13 @@ export function clearPendingPrompt(): void {
   _pendingPrompt = null;
 }
 
-// ── Diagnostic logging ────────────────────────────────────────────────────────
-// Visible in Chrome DevTools (desktop remote-inspect or chrome://inspect).
-// Helps diagnose why beforeinstallprompt may not fire.
-console.log('[PWA] pwa.ts loaded — listening for beforeinstallprompt');
-console.log('[PWA] viewport width:', window.innerWidth, '| standalone:', window.matchMedia('(display-mode: standalone)').matches);
-
-window.addEventListener('load', () => {
-  console.log('[PWA] page load event fired');
-
-  // Report service worker registration state after load.
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.getRegistration('/').then((reg) => {
-      if (reg) {
-        console.log('[PWA] SW registration found — scope:', reg.scope, '| state:', reg.active?.state ?? 'no active worker');
-      } else {
-        console.warn('[PWA] No SW registration found for scope /');
-      }
-    });
-  } else {
-    console.warn('[PWA] navigator.serviceWorker not available');
-  }
-
-  // Check if the PWA is already installed via getInstalledRelatedApps().
-  // Chrome automatically includes the current PWA in the returned list if it has
-  // already been installed — even without 'related_applications' in the manifest.
-  // An already-installed PWA suppresses beforeinstallprompt AND hides the
-  // ⋮ menu "Install app" option, which would explain both symptoms.
-  if ('getInstalledRelatedApps' in navigator) {
-    (navigator as unknown as { getInstalledRelatedApps: () => Promise<unknown[]> })
-      .getInstalledRelatedApps()
-      .then((apps) => {
-        if (apps.length > 0) {
-          console.warn('[PWA] getInstalledRelatedApps() returned', apps.length, 'app(s):', JSON.stringify(apps));
-          console.warn('[PWA] PWA appears to already be installed — Chrome suppresses beforeinstallprompt and hides the ⋮ Install option when the app is already installed. Check Settings → Apps for "Bambuddy".');
-        } else {
-          console.log('[PWA] getInstalledRelatedApps(): no installed PWA detected by Chrome');
-        }
-      })
-      .catch((err) => {
-        console.log('[PWA] getInstalledRelatedApps() not available:', err);
-      });
-  } else {
-    console.log('[PWA] getInstalledRelatedApps not supported in this browser');
-  }
-
-  // If beforeinstallprompt hasn't fired 5 s after load, log possible reasons.
-  setTimeout(() => {
-    if (!_pendingPrompt) {
-      console.warn(
-        '[PWA] beforeinstallprompt has not fired 5 s after load.\n' +
-        '  Possible reasons:\n' +
-        '  • Chrome install cooldown: Chrome suppresses the event for ~90 days after a\n' +
-        '    dismissed prompt. Clearing site data does NOT reset this — it is stored in\n' +
-        "    Chrome's own profile, not the site's storage.\n" +
-        '    → To bypass on Android: open chrome://flags/#bypass-app-banner-engagement-checks\n' +
-        "      set it to 'Enabled', relaunch Chrome, then reload this page.\n" +
-        '  • PWA criteria not met: open DevTools → Issues panel (the badge next to the\n' +
-        '    console filters) — Chrome lists the exact failing criteria there.\n' +
-        '  • App already installed on this device (check Settings → Apps).\n' +
-        '  • Running in incognito / unsupported browser.',
-      );
-    }
-  }, 5000);
-});
-
 window.addEventListener('beforeinstallprompt', (e) => {
-  console.log('[PWA] beforeinstallprompt fired! platforms:', (e as BeforeInstallPromptEvent).platforms);
-
   // On desktop the sidebar install button is always visible, so suppress
   // Chrome's mini-infobar and use the button as the sole install trigger.
   // On mobile the button is buried inside the hamburger drawer, so let the
-  // mini-infobar appear naturally as the primary prompt.
+  // browser's install UI appear naturally as the primary prompt.
   if (window.innerWidth >= SIDEBAR_COMPACT_BREAKPOINT) {
     e.preventDefault();
-    console.log('[PWA] desktop: e.preventDefault() called — sidebar button is the install trigger');
-  } else {
-    console.log('[PWA] mobile: mini-infobar will appear (e.preventDefault NOT called)');
   }
 
   _pendingPrompt = e as BeforeInstallPromptEvent;
@@ -123,6 +53,5 @@ window.addEventListener('beforeinstallprompt', (e) => {
 });
 
 window.addEventListener('appinstalled', () => {
-  console.log('[PWA] appinstalled event fired — PWA has been installed');
   _pendingPrompt = null;
 });
