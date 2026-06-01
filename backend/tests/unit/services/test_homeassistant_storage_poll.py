@@ -26,15 +26,32 @@ def _state_response(payload: dict) -> MagicMock:
     return response
 
 
+def _error_response(status_code: int) -> MagicMock:
+    import httpx
+
+    response = MagicMock()
+    request = httpx.Request("GET", "http://ha.local/api/states/x")
+    httpx_response = httpx.Response(status_code, request=request)
+    response.raise_for_status = MagicMock(
+        side_effect=httpx.HTTPStatusError("error", request=request, response=httpx_response)
+    )
+    response.json = MagicMock(return_value={})
+    return response
+
+
 def _mock_client(by_entity: dict[str, dict]):
     """Return a mocked httpx.AsyncClient that serves payloads keyed by entity id.
 
     The entity id is the last path segment of the /api/states/<entity> URL.
+    A payload of the form {"__status__": 404} raises an HTTP error for that entity.
     """
 
     async def _get(url, *args, **kwargs):
         entity_id = url.rsplit("/", 1)[-1]
-        return _state_response(by_entity[entity_id])
+        payload = by_entity[entity_id]
+        if "__status__" in payload:
+            return _error_response(payload["__status__"])
+        return _state_response(payload)
 
     client = MagicMock()
     client.get = AsyncMock(side_effect=_get)
@@ -115,6 +132,36 @@ async def test_only_one_entity_configured():
 
     assert result["temp"] is None
     assert result["humidity"] == 40.5
+
+
+@pytest.mark.asyncio
+async def test_bad_humidity_entity_does_not_discard_good_temp():
+    """Regression (Sunlu S1 Plus dryer): humidity entity 404s, temp is valid.
+
+    Live logs showed `poll_storage_unit` returning None — the humidity 404 aborted
+    the whole method and discarded a perfectly good 20.3 °C temperature, blanking
+    the unit. Each entity must now be fetched in isolation.
+    """
+    by_entity = {
+        "sensor.sunlu_s1_plus_filament_drier_temperature": {
+            "state": "20.3",
+            "attributes": {"unit_of_measurement": "°C"},
+        },
+        "temperature_humidity_sensor_1905_humidity": {"__status__": 404},
+    }
+    service = _service()
+
+    with patch("httpx.AsyncClient", return_value=_mock_client(by_entity)):
+        result = await service.poll_storage_unit(
+            1,
+            "sensor.sunlu_s1_plus_filament_drier_temperature",
+            "temperature_humidity_sensor_1905_humidity",
+        )
+
+    assert result is not None
+    assert result["temp"] == 20.3
+    assert result["humidity"] is None
+    assert service.get_cached_storage(1)["temp"] == 20.3
 
 
 @pytest.mark.asyncio

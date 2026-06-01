@@ -454,48 +454,66 @@ class HomeAssistantService:
 
         try:
             async with httpx.AsyncClient(timeout=self.timeout, verify=False) as client:
+                # Fetch each entity independently. A failure on one (e.g. a bad or
+                # removed entity id returning 404) must NOT discard the other's
+                # reading — otherwise a single wrong entity blanks the whole unit.
                 if temp_entity:
-                    response = await client.get(
-                        f"{self.base_url}/api/states/{temp_entity}",
-                        headers=self._headers(),
+                    value, unit = await self._fetch_storage_entity(
+                        client, unit_id, temp_entity, ("current_temperature", "temperature", "temp"), "temp"
                     )
-                    response.raise_for_status()
-                    data = response.json()
-                    temp = self._extract_reading(data, ("current_temperature", "temperature", "temp"))
-                    if temp is not None:
-                        result["temp"] = temp
-                        result["temp_unit"] = data.get("attributes", {}).get("unit_of_measurement", "°C")
-                    else:
-                        logger.warning(
-                            "Storage temp: no numeric value unit=%s entity=%s state=%r",
-                            unit_id,
-                            temp_entity,
-                            data.get("state"),
-                        )
+                    if value is not None:
+                        result["temp"] = value
+                        if unit:
+                            result["temp_unit"] = unit
 
                 if humidity_entity:
-                    response = await client.get(
-                        f"{self.base_url}/api/states/{humidity_entity}",
-                        headers=self._headers(),
+                    value, _ = await self._fetch_storage_entity(
+                        client, unit_id, humidity_entity, ("current_humidity", "humidity"), "humidity"
                     )
-                    response.raise_for_status()
-                    data = response.json()
-                    humidity = self._extract_reading(data, ("current_humidity", "humidity"))
-                    if humidity is not None:
-                        result["humidity"] = humidity
-                    else:
-                        logger.warning(
-                            "Storage humidity: no numeric value unit=%s entity=%s state=%r",
-                            unit_id,
-                            humidity_entity,
-                            data.get("state"),
-                        )
+                    if value is not None:
+                        result["humidity"] = value
 
             self._storage_cache[unit_id] = result
             return result
         except Exception as e:
             logger.warning("Storage sensor poll failed unit=%s: %s", unit_id, e)
             return None
+
+    async def _fetch_storage_entity(
+        self,
+        client: httpx.AsyncClient,
+        unit_id: int,
+        entity_id: str,
+        attr_keys: tuple[str, ...],
+        kind: str,
+    ) -> tuple[float | None, str | None]:
+        """Fetch one storage entity's numeric reading and unit, isolated from the other.
+
+        Returns (value, unit_of_measurement). Network/HTTP errors (e.g. a 404 from a
+        wrong entity id) are caught here and logged so they can't abort the sibling
+        entity's fetch or prevent the cache from being updated.
+        """
+        try:
+            response = await client.get(
+                f"{self.base_url}/api/states/{entity_id}",
+                headers=self._headers(),
+            )
+            response.raise_for_status()
+            data = response.json()
+        except Exception as e:
+            logger.warning("Storage %s poll failed unit=%s entity=%s: %s", kind, unit_id, entity_id, e)
+            return None, None
+
+        value = self._extract_reading(data, attr_keys)
+        if value is None:
+            logger.warning(
+                "Storage %s: no numeric value unit=%s entity=%s state=%r",
+                kind,
+                unit_id,
+                entity_id,
+                data.get("state"),
+            )
+        return value, data.get("attributes", {}).get("unit_of_measurement")
 
     def get_cached_storage(self, unit_id: int) -> dict | None:
         """Return the last cached reading for a storage unit, or None."""
