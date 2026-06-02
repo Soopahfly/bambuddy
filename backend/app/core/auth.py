@@ -516,6 +516,21 @@ async def _user_from_api_key(db: AsyncSession, api_key: APIKey) -> User | None:
     return user
 
 
+# Only persist api_key.last_used at most once per this interval, to avoid a DB
+# write + commit on every single authenticated request (write amplification on
+# SQLite under polling clients such as the SpoolBuddy kiosk).
+_LAST_USED_THROTTLE_SECONDS = 60
+
+
+def _should_update_last_used(last_used: datetime | None) -> bool:
+    """Return True if api_key.last_used is stale enough to be worth re-persisting."""
+    if last_used is None:
+        return True
+    if last_used.tzinfo is None:
+        last_used = last_used.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - last_used) > timedelta(seconds=_LAST_USED_THROTTLE_SECONDS)
+
+
 async def _validate_api_key(db: AsyncSession, api_key_value: str) -> APIKey | None:
     """Validate an API key and return the APIKey object if valid, None otherwise.
 
@@ -547,9 +562,10 @@ async def _validate_api_key(db: AsyncSession, api_key_value: str) -> APIKey | No
                         expires = expires.replace(tzinfo=timezone.utc)
                     if expires < datetime.now(timezone.utc):
                         return None  # Expired
-                # Update last_used timestamp
-                api_key.last_used = datetime.now(timezone.utc)
-                await db.commit()
+                # Update last_used timestamp (throttled to avoid a write per request)
+                if _should_update_last_used(api_key.last_used):
+                    api_key.last_used = datetime.now(timezone.utc)
+                    await db.commit()
                 return api_key
     except Exception as e:
         logger.warning("API key validation error: %s", e)
@@ -822,9 +838,10 @@ async def get_api_key(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="API key has expired",
                     )
-            # Update last_used timestamp
-            api_key.last_used = datetime.now(timezone.utc)
-            await db.commit()
+            # Update last_used timestamp (throttled to avoid a write per request)
+            if _should_update_last_used(api_key.last_used):
+                api_key.last_used = datetime.now(timezone.utc)
+                await db.commit()
             return api_key
 
     raise HTTPException(
