@@ -471,16 +471,27 @@ async def authenticate_user_by_email(db: AsyncSession, email: str, password: str
 
 
 async def is_auth_enabled(db: AsyncSession) -> bool:
-    """Check if authentication is enabled."""
-    try:
-        result = await db.execute(select(Settings).where(Settings.key == "auth_enabled"))
-        setting = result.scalar_one_or_none()
-        if setting is None:
-            return False
-        return setting.value.lower() == "true"
-    except Exception:
-        # If settings table doesn't exist or query fails, assume auth is disabled
+    """Check if authentication is enabled.
+
+    Fails CLOSED on database errors. A previous version of this function
+    caught every exception and returned False — silently treating an
+    unavailable database as "auth is disabled" and granting unauthenticated
+    access to every endpoint that called it (GHSA-6mf4-q26m-47pv, CVSS 9.8).
+    An attacker could trigger that fail-open by flooding /api/v1/auth/login
+    to exhaust the process's file-descriptor budget, then hit a protected
+    endpoint during the window where the next DB op raised.
+
+    Legitimate "auth was never configured" still returns False — the
+    settings row is simply absent, ``scalar_one_or_none`` returns None,
+    no exception. Any OTHER failure (connection error, fd exhaustion,
+    schema mismatch, …) propagates so the caller can deny the request
+    (503 / 500). Fail-closed is the only safe default for an auth probe.
+    """
+    result = await db.execute(select(Settings).where(Settings.key == "auth_enabled"))
+    setting = result.scalar_one_or_none()
+    if setting is None:
         return False
+    return setting.value.lower() == "true"
 
 
 async def _user_from_api_key(db: AsyncSession, api_key: APIKey) -> User | None:
@@ -503,6 +514,21 @@ async def _user_from_api_key(db: AsyncSession, api_key: APIKey) -> User | None:
         # access fails closed.
         return None
     return user
+
+
+# Only persist api_key.last_used at most once per this interval, to avoid a DB
+# write + commit on every single authenticated request (write amplification on
+# SQLite under polling clients such as the SpoolBuddy kiosk).
+_LAST_USED_THROTTLE_SECONDS = 60
+
+
+def _should_update_last_used(last_used: datetime | None) -> bool:
+    """Return True if api_key.last_used is stale enough to be worth re-persisting."""
+    if last_used is None:
+        return True
+    if last_used.tzinfo is None:
+        last_used = last_used.replace(tzinfo=timezone.utc)
+    return (datetime.now(timezone.utc) - last_used) > timedelta(seconds=_LAST_USED_THROTTLE_SECONDS)
 
 
 async def _validate_api_key(db: AsyncSession, api_key_value: str) -> APIKey | None:
@@ -536,9 +562,10 @@ async def _validate_api_key(db: AsyncSession, api_key_value: str) -> APIKey | No
                         expires = expires.replace(tzinfo=timezone.utc)
                     if expires < datetime.now(timezone.utc):
                         return None  # Expired
-                # Update last_used timestamp
-                api_key.last_used = datetime.now(timezone.utc)
-                await db.commit()
+                # Update last_used timestamp (throttled to avoid a write per request)
+                if _should_update_last_used(api_key.last_used):
+                    api_key.last_used = datetime.now(timezone.utc)
+                    await db.commit()
                 return api_key
     except Exception as e:
         logger.warning("API key validation error: %s", e)
@@ -811,9 +838,10 @@ async def get_api_key(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="API key has expired",
                     )
-            # Update last_used timestamp
-            api_key.last_used = datetime.now(timezone.utc)
-            await db.commit()
+            # Update last_used timestamp (throttled to avoid a write per request)
+            if _should_update_last_used(api_key.last_used):
+                api_key.last_used = datetime.now(timezone.utc)
+                await db.commit()
             return api_key
 
     raise HTTPException(

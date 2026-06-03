@@ -9,6 +9,7 @@ import {
   ArrowUp, ArrowDown, ArrowUpDown, Group, ChevronDown, Check, RefreshCw, TrendingUp, Lock, Copy, Eraser,
 } from 'lucide-react';
 import { ForecastPanel } from '../components/ForecastPanel';
+import { FilamentStoragePage } from './FilamentStoragePage';
 import { api, spoolbuddyApi, ApiError } from '../api/client';
 import type { InventorySpool, SpoolCatalogEntry } from '../api/client';
 import { Button } from '../components/Button';
@@ -444,6 +445,22 @@ function saveSortState(state: SortState) {
 
 // Wrapper: detects Spoolman mode and passes it to the shared inventory UI
 export default function InventoryPageRouter() {
+  const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab: 'filament' | 'storage' =
+    searchParams.get('tab') === 'storage' ? 'storage' : 'filament';
+
+  const setTab = (tab: 'filament' | 'storage') => {
+    setSearchParams(
+      (prev) => {
+        if (tab === 'storage') prev.set('tab', 'storage');
+        else prev.delete('tab');
+        return prev;
+      },
+      { replace: true },
+    );
+  };
+
   const { data: spoolmanSettings } = useQuery({
     queryKey: ['spoolman-settings'],
     queryFn: api.getSpoolmanSettings,
@@ -454,7 +471,39 @@ export default function InventoryPageRouter() {
   const spoolmanMode =
     spoolmanSettings?.spoolman_enabled === 'true' && !!spoolmanSettings?.spoolman_url;
 
-  return <InventoryPage spoolmanMode={spoolmanMode} spoolmanModeReady={spoolmanModeReady} />;
+  const tabs = [
+    { key: 'filament', label: t('nav.inventory') },
+    { key: 'storage', label: t('nav.storage') },
+  ] as const;
+
+  return (
+    <div>
+      {/* Filament / Storage tab bar */}
+      <div className="px-4 md:px-8 pt-4 md:pt-6 border-b border-bambu-dark-tertiary">
+        <div className="flex gap-1">
+          {tabs.map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                activeTab === key
+                  ? 'border-bambu-green text-white'
+                  : 'border-transparent text-bambu-gray hover:text-white'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {activeTab === 'storage' ? (
+        <FilamentStoragePage />
+      ) : (
+        <InventoryPage spoolmanMode={spoolmanMode} spoolmanModeReady={spoolmanModeReady} />
+      )}
+    </div>
+  );
 }
 
 function InventoryPage({ spoolmanMode = false, spoolmanModeReady = true }: { spoolmanMode?: boolean; spoolmanModeReady?: boolean }) {

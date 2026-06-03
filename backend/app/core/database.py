@@ -2661,6 +2661,136 @@ async def run_migrations(conn):
     # file metadata so the FileManager displays the filename, not the title (#1489).
     await _migrate_drop_library_print_name(conn)
 
+    # Migration: Add HA enclosure sensor entity columns to printers
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN enclosed BOOLEAN DEFAULT 0")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN ha_temp_entity VARCHAR(100)")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN ha_humidity_entity VARCHAR(100)")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN ha_fan_entity VARCHAR(100)")
+
+    # Migration: Create enclosure_readings table for HA temp/humidity history
+    try:
+        async with conn.begin_nested():
+            if is_sqlite():
+                await conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS enclosure_readings (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            printer_id INTEGER NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+                            temperature REAL,
+                            humidity REAL,
+                            recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+            else:
+                await conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS enclosure_readings (
+                            id SERIAL PRIMARY KEY,
+                            printer_id INTEGER NOT NULL REFERENCES printers(id) ON DELETE CASCADE,
+                            temperature REAL,
+                            humidity REAL,
+                            recorded_at TIMESTAMP NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                )
+    except (OperationalError, ProgrammingError):
+        pass
+    await _safe_execute(
+        conn,
+        "CREATE INDEX IF NOT EXISTS ix_enclosure_readings_printer_time ON enclosure_readings(printer_id, recorded_at)",
+    )
+
+    # Migration: Add WLED per-printer LED strip connection fields
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN wled_enabled BOOLEAN DEFAULT 0")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN wled_host VARCHAR(253)")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN wled_port INTEGER DEFAULT 80")
+    await _safe_execute(conn, "ALTER TABLE printers ADD COLUMN wled_api_key VARCHAR(100)")
+
+    # Migration: Create storage_units table for filament dryers / spool storage
+    try:
+        async with conn.begin_nested():
+            if is_sqlite():
+                await conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS storage_units (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            name VARCHAR(100) NOT NULL,
+                            unit_type VARCHAR(20) NOT NULL DEFAULT 'storage',
+                            ha_temp_entity VARCHAR(100),
+                            ha_humidity_entity VARCHAR(100),
+                            notes VARCHAR(500),
+                            is_active BOOLEAN NOT NULL DEFAULT 1,
+                            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+            else:
+                await conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS storage_units (
+                            id SERIAL PRIMARY KEY,
+                            name VARCHAR(100) NOT NULL,
+                            unit_type VARCHAR(20) NOT NULL DEFAULT 'storage',
+                            ha_temp_entity VARCHAR(100),
+                            ha_humidity_entity VARCHAR(100),
+                            notes VARCHAR(500),
+                            is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                )
+    except (OperationalError, ProgrammingError):
+        pass
+
+    # Migration: Create storage_readings table for HA temp/humidity history
+    try:
+        async with conn.begin_nested():
+            if is_sqlite():
+                await conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS storage_readings (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            storage_unit_id INTEGER NOT NULL REFERENCES storage_units(id) ON DELETE CASCADE,
+                            temp REAL,
+                            humidity REAL,
+                            recorded_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+                        )
+                        """
+                    )
+                )
+            else:
+                await conn.execute(
+                    text(
+                        """
+                        CREATE TABLE IF NOT EXISTS storage_readings (
+                            id SERIAL PRIMARY KEY,
+                            storage_unit_id INTEGER NOT NULL REFERENCES storage_units(id) ON DELETE CASCADE,
+                            temp REAL,
+                            humidity REAL,
+                            recorded_at TIMESTAMP NOT NULL DEFAULT NOW()
+                        )
+                        """
+                    )
+                )
+    except (OperationalError, ProgrammingError):
+        pass
+    await _safe_execute(
+        conn,
+        "CREATE INDEX IF NOT EXISTS ix_storage_readings_unit_time ON storage_readings(storage_unit_id, recorded_at)",
+    )
+
 
 async def seed_notification_templates():
     """Seed default notification templates if they don't exist."""

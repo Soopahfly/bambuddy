@@ -28,12 +28,13 @@ class Printer(Base):
     external_camera_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     external_camera_type: Mapped[str | None] = mapped_column(String(20), nullable=True)  # mjpeg, rtsp, snapshot
     external_camera_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
-    # Optional single-frame snapshot URL — when set, used for snapshot / finish-photo
-    # / timelapse / plate-detect captures instead of opening the live stream and
-    # skipping a warm-up frame. Bypasses MJPEG warm-up issues on sources that
-    # expose a dedicated frame endpoint (e.g. go2rtc's /api/frame.jpeg). #1177.
     external_camera_snapshot_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     camera_rotation: Mapped[int] = mapped_column(default=0)  # 0, 90, 180, 270 degrees
+    # Home Assistant enclosure sensors (for printers without built-in enclosure temp/humidity)
+    enclosed: Mapped[bool] = mapped_column(Boolean, default=False)
+    ha_temp_entity: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ha_humidity_entity: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    ha_fan_entity: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # Plate detection - check if build plate is empty before starting print
     plate_detection_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     # ROI for plate detection (percentages: 0.0-1.0)
@@ -44,11 +45,20 @@ class Printer(Base):
     # Queue: True after a print finishes/fails, until user acknowledges the plate is cleared.
     # Persisted so the gate survives crashes and power cycles (issue #961).
     awaiting_plate_clear: Mapped[bool] = mapped_column(Boolean, default=False)
+    # WLED integration - per-printer LED strip connection details
+    wled_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    wled_host: Mapped[str | None] = mapped_column(String(253), nullable=True)
+    wled_port: Mapped[int] = mapped_column(default=80)
+    wled_api_key: Mapped[str | None] = mapped_column(String(100), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
     archives: Mapped[list["PrintArchive"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
+    fan_runs: Mapped[list["EnclosureFanRun"]] = relationship(back_populates="printer", cascade="all, delete-orphan")
+    enclosure_readings: Mapped[list["EnclosureReading"]] = relationship(
+        back_populates="printer", cascade="all, delete-orphan"
+    )
     smart_plugs: Mapped[list["SmartPlug"]] = relationship(back_populates="printer")
     notification_providers: Mapped[list["NotificationProvider"]] = relationship(back_populates="printer")
     maintenance_items: Mapped[list["PrinterMaintenance"]] = relationship(
@@ -60,6 +70,8 @@ class Printer(Base):
 
 from backend.app.models.ams_history import AMSSensorHistory  # noqa: E402
 from backend.app.models.archive import PrintArchive  # noqa: E402
+from backend.app.models.enclosure_fan_run import EnclosureFanRun  # noqa: E402
+from backend.app.models.enclosure_reading import EnclosureReading  # noqa: E402
 from backend.app.models.kprofile_note import KProfileNote  # noqa: E402
 from backend.app.models.maintenance import PrinterMaintenance  # noqa: E402
 from backend.app.models.notification import NotificationProvider  # noqa: E402

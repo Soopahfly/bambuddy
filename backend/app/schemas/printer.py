@@ -33,10 +33,13 @@ class PrinterBase(BaseModel):
     model: str | None = None
     location: str | None = None  # Group/location name
     auto_archive: bool = True
+    enclosed: bool = False
+    ha_temp_entity: str | None = None
+    ha_humidity_entity: str | None = None
+    ha_fan_entity: str | None = None
     external_camera_url: str | None = None
     external_camera_type: str | None = None  # "mjpeg", "rtsp", "snapshot", "usb"
     external_camera_enabled: bool = False
-    external_camera_snapshot_url: str | None = None  # Optional single-frame override; #1177
     camera_rotation: int = 0  # 0, 90, 180, 270 degrees
 
 
@@ -65,14 +68,21 @@ class PrinterUpdate(BaseModel):
     location: str | None = None
     is_active: bool | None = None
     auto_archive: bool | None = None
+    enclosed: bool | None = None
     print_hours_offset: float | None = None
+    ha_temp_entity: str | None = None
+    ha_humidity_entity: str | None = None
+    ha_fan_entity: str | None = None
     external_camera_url: str | None = None
     external_camera_type: str | None = None
     external_camera_enabled: bool | None = None
-    external_camera_snapshot_url: str | None = None  # #1177
     camera_rotation: int | None = None  # 0, 90, 180, 270 degrees
     plate_detection_enabled: bool | None = None
     plate_detection_roi: PlateDetectionROI | None = None
+    wled_enabled: bool | None = None
+    wled_host: str | None = None
+    wled_port: int | None = None
+    wled_api_key: str | None = None
 
 
 class PrinterResponse(PrinterBase):
@@ -83,10 +93,13 @@ class PrinterResponse(PrinterBase):
     external_camera_url: str | None = None
     external_camera_type: str | None = None
     external_camera_enabled: bool = False
-    external_camera_snapshot_url: str | None = None  # #1177
     camera_rotation: int = 0  # 0, 90, 180, 270 degrees
     plate_detection_enabled: bool = False
     plate_detection_roi: PlateDetectionROI | None = None
+    wled_enabled: bool = False
+    wled_host: str | None = None
+    wled_port: int = 80
+    wled_api_key: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -105,15 +118,22 @@ class PrinterResponse(PrinterBase):
             "model": printer.model,
             "location": printer.location,
             "auto_archive": printer.auto_archive,
+            "enclosed": printer.enclosed,
+            "ha_temp_entity": printer.ha_temp_entity,
+            "ha_humidity_entity": printer.ha_humidity_entity,
+            "ha_fan_entity": printer.ha_fan_entity,
             "external_camera_url": printer.external_camera_url,
             "external_camera_type": printer.external_camera_type,
             "external_camera_enabled": printer.external_camera_enabled,
-            "external_camera_snapshot_url": printer.external_camera_snapshot_url,
             "camera_rotation": printer.camera_rotation,
             "is_active": printer.is_active,
             "nozzle_count": printer.nozzle_count,
             "print_hours_offset": printer.print_hours_offset,
             "plate_detection_enabled": printer.plate_detection_enabled,
+            "wled_enabled": getattr(printer, "wled_enabled", False),
+            "wled_host": getattr(printer, "wled_host", None),
+            "wled_port": getattr(printer, "wled_port", 80) or 80,
+            "wled_api_key": getattr(printer, "wled_api_key", None),
             "created_at": printer.created_at,
             "updated_at": printer.updated_at,
         }
@@ -196,11 +216,6 @@ class NozzleRackSlot(BaseModel):
     filament_type: str = ""  # Material type (e.g. "PLA", "PETG")
 
 
-class AmsLabelBody(BaseModel):
-    label: str = Field(..., min_length=1, max_length=100)
-    ams_serial: str = Field(default="", max_length=50)
-
-
 class FilaSwitchResponse(BaseModel):
     """Filament Track Switch (FTS) state — accessory that mediates AMS-to-extruder routing.
 
@@ -217,6 +232,11 @@ class FilaSwitchResponse(BaseModel):
     out_extruders: list[int] = []
     stat: int = 0
     info: int = 0
+
+
+class AmsLabelBody(BaseModel):
+    label: str = Field(..., min_length=1, max_length=100)
+    ams_serial: str = Field(default="", max_length=50)
 
 
 class PrintOptionsResponse(BaseModel):
@@ -285,8 +305,7 @@ class PrinterStatus(BaseModel):
     ams_mapping: list[int] = []
     # Per-AMS extruder map: {ams_id: extruder_id} where 0=right, 1=left
     ams_extruder_map: dict[str, int] = {}
-    # Filament Track Switch (FTS) accessory — when installed, AMS reports
-    # bits 8-11 = 0xE (uninitialized) and routing is dynamic via the FTS. See #1162.
+    # Filament Track Switch (FTS) — present on some AMS setups
     fila_switch: FilaSwitchResponse | None = None
     # Currently loaded tray (global ID): 254 = external spool, 255 = no filament
     tray_now: int = 255

@@ -10,13 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/maziggy/bambuddy/releases"><img src="https://img.shields.io/github/v/release/maziggy/bambuddy?style=flat-square&color=blue" alt="Release"></a>
-  <img src="https://github.com/maziggy/bambuddy/actions/workflows/ci.yml/badge.svg?branch=main">
-  <img src="https://github.com/maziggy/bambuddy/actions/workflows/github-code-scanning/codeql/badge.svg">
-  <img src="https://github.com/maziggy/bambuddy/actions/workflows/security.yml/badge.svg">
-  <a href="https://github.com/maziggy/bambuddy/blob/main/LICENSE"><img src="https://img.shields.io/github/license/maziggy/bambuddy?style=flat-square" alt="License"></a>
-  <a href="https://github.com/maziggy/bambuddy/stargazers"><img src="https://img.shields.io/github/stars/maziggy/bambuddy?style=flat-square" alt="Stars"></a>
-  <a href="https://github.com/maziggy/bambuddy/issues"><img src="https://img.shields.io/github/issues/maziggy/bambuddy?style=flat-square" alt="Issues"></a>
+  <a href="https://github.com/maziggy/bambuddy/releases"><img src="https://img.shields.io/github/v/release/maziggy/bambuddy?style=flat-square&color=blue&label=upstream" alt="Upstream Release"></a>
+  <img src="https://github.com/Soopahfly/bambuddy/actions/workflows/ci.yml/badge.svg?branch=main">
+  <img src="https://github.com/Soopahfly/bambuddy/actions/workflows/codeql.yml/badge.svg">
+  <img src="https://github.com/Soopahfly/bambuddy/actions/workflows/security.yml/badge.svg">
+  <a href="https://github.com/Soopahfly/bambuddy/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Soopahfly/bambuddy?style=flat-square" alt="License"></a>
+  <a href="https://github.com/Soopahfly/bambuddy/stargazers"><img src="https://img.shields.io/github/stars/Soopahfly/bambuddy?style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/Soopahfly/bambuddy/issues"><img src="https://img.shields.io/github/issues/Soopahfly/bambuddy?style=flat-square" alt="Issues"></a>
   <a href="https://discord.gg/aFS3ZfScHM"><img src="https://img.shields.io/discord/1461241694715645994?style=flat-square&logo=discord&logoColor=white&label=Discord&color=5865F2" alt="Discord"></a>
   <a href="https://github.com/sponsors/maziggy"><img src="https://img.shields.io/badge/GitHub_Sponsors-Sponsor-ea4aaa?style=flat-square&logo=github-sponsors&logoColor=white" alt="GitHub Sponsors"></a>
   <a href="https://sponsors.bambuddy.cool"><img src="https://img.shields.io/badge/Sponsors_Portal-sponsors.bambuddy.cool-2dd4bf?style=flat-square&logo=heart&logoColor=white" alt="Sponsors Portal"></a>
@@ -24,7 +24,6 @@
 </p>
 
 <p align="center">
-  <a href="https://demo.bambuddy.cool"><strong>🎮 Try the Live Demo</strong></a> •
   <a href="#-features">Features</a> •
   <a href="#-screenshots">Screenshots</a> •
   <a href="#-quick-start">Quick Start</a> •
@@ -33,13 +32,19 @@
   <a href="#-contributing">Contributing</a>
 </p>
 
-<p align="center">
-  <a href="https://demo.bambuddy.cool">
-    <img src="https://img.shields.io/badge/🎮_Live_Demo-demo.bambuddy.cool-00ae42?style=for-the-badge&labelColor=0a0d14" alt="Live Demo">
-  </a>
-  <br>
-  <em>Spin up your own private Bambuddy in ~10 seconds — no install, no signup, 30-minute session.</em>
-</p>
+---
+
+## 🔱 What's different in this fork
+
+This is a fork of [maziggy/bambuddy](https://github.com/maziggy/bambuddy) maintained by [@Soopahfly](https://github.com/Soopahfly). It tracks upstream closely and adds a handful of home-lab integrations:
+
+- 💡 **WLED LED strip integration** — per-printer status LEDs that change colour to reflect printer state (printing / idle / error / …), with a global state→colour map in Settings.
+- 🌡️ **Home Assistant enclosure sensors** — temperature, humidity, and fan tiles on each printer card, persisted over time with history charts.
+- 🧵 **Filament dryer / storage monitoring** — track filament storage and dryer conditions via Home Assistant sensors.
+- 📲 **Enhanced PWA installability** — installs as a standalone app with a native install prompt, offline asset caching, and self-hosted fonts.
+- 🔒 **Hardened Content-Security-Policy** — nonce-based `script-src` and no third-party CDN dependencies.
+
+Everything else tracks upstream Bambuddy.
 
 ---
 
@@ -321,18 +326,6 @@ Optional but recommended — drop the [`slicer-api/` Compose stack](slicer-api/R
 ## 🎬 Demo
 
 <p align="center">
-  <a href="https://demo.bambuddy.cool">
-    <img src="https://img.shields.io/badge/🎮_Try_It_Live-demo.bambuddy.cool-00ae42?style=for-the-badge&labelColor=0a0d14" alt="Live Demo">
-  </a>
-  <br>
-  <em>Spin up your own private Bambuddy with simulated printers and pre-loaded print history. Click around freely — it's your sandbox. ~10 seconds to spawn, 30-minute session, no signup.</em>
-</p>
-
-<p align="center">
-  <strong>Prefer a video walkthrough?</strong>
-</p>
-
-<p align="center">
   <a href="https://youtu.be/bmq2Z0lEXeo">
     <img src="https://img.youtube.com/vi/bmq2Z0lEXeo/maxresdefault.jpg" alt="Bambuddy Demo Video" width="800">
   </a>
@@ -485,13 +478,13 @@ Optional but recommended — drop the [`slicer-api/` Compose stack](slicer-api/R
 **Option A: Pre-built image (fastest)**
 ```bash
 mkdir bambuddy && cd bambuddy
-curl -O https://raw.githubusercontent.com/maziggy/bambuddy/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/Soopahfly/bambuddy/main/docker-compose.yml
 docker compose up -d
 ```
 
 **Option B: Build from source**
 ```bash
-git clone https://github.com/maziggy/bambuddy.git
+git clone https://github.com/Soopahfly/bambuddy.git
 cd bambuddy
 docker compose up -d --build
 ```
@@ -534,20 +527,15 @@ docker compose pull && docker compose up -d
 cd bambuddy && git pull && docker compose up -d --build
 ```
 
-**Daily Beta Builds:**
+**Automatic Builds:**
 
-Beta builds with the latest fixes are pushed regularly to the same beta version tag:
+The fork image is rebuilt and pushed to `ghcr.io/soopahfly/bambuddy:latest` whenever it syncs with upstream and new fork changes land:
 
 ```bash
-# Pull the current beta
-docker pull ghcr.io/maziggy/bambuddy:0.2.2b1
-# or from Docker Hub
-docker pull maziggy/bambuddy:0.2.2b1
+docker pull ghcr.io/soopahfly/bambuddy:latest
 ```
 
-Use [Watchtower](https://containrrr.dev/watchtower/) to automatically update when new daily builds are pushed.
-
-> **Note:** Beta builds use version tags like `0.2.2b1` — they are never tagged as `latest`. Your stable installation won't auto-update to a beta unless you explicitly pull a beta tag.
+Use [Watchtower](https://containrrr.dev/watchtower/) to automatically update when new builds are pushed.
 
 **Useful Commands:**
 
@@ -613,7 +601,7 @@ services:
 
 ```bash
 # Clone and setup
-git clone https://github.com/maziggy/bambuddy.git
+git clone https://github.com/Soopahfly/bambuddy.git
 cd bambuddy
 python3 -m venv venv
 source venv/bin/activate
@@ -699,7 +687,7 @@ Not sure where to start? Reach out on [Discord](https://discord.gg/aFS3ZfScHM) o
 
 ```bash
 # Development setup
-git clone https://github.com/maziggy/bambuddy.git
+git clone https://github.com/Soopahfly/bambuddy.git
 cd bambuddy
 
 # Backend
@@ -745,7 +733,7 @@ Sponsors get listed in [BACKERS.md](BACKERS.md). Need commercial support (SLA, m
   Made with ❤️ for the 3D printing community
   <br><br>
   <a href="https://discord.gg/aFS3ZfScHM">Join our Discord</a> •
-  <a href="https://github.com/maziggy/bambuddy/issues">Report Bug</a> •
-  <a href="https://github.com/maziggy/bambuddy/issues">Request Feature</a> •
+  <a href="https://github.com/Soopahfly/bambuddy/issues">Report Bug</a> •
+  <a href="https://github.com/Soopahfly/bambuddy/issues">Request Feature</a> •
   <a href="http://wiki.bambuddy.cool">Documentation</a>
 </p>

@@ -290,8 +290,18 @@ export interface Printer {
   camera_rotation: number;  // 0, 90, 180, 270 degrees
   plate_detection_enabled: boolean;  // Check plate before print
   plate_detection_roi?: PlateDetectionROI;  // ROI for plate detection
+  // WLED LED strip integration
+  wled_enabled: boolean;
+  wled_host: string | null;
+  wled_port: number;
+  wled_api_key: string | null;
   created_at: string;
   updated_at: string;
+  // Enclosure sensor integration (Home Assistant)
+  enclosed: boolean;
+  ha_temp_entity: string | null;
+  ha_humidity_entity: string | null;
+  ha_fan_entity: string | null;
 }
 
 export interface HMSError {
@@ -410,6 +420,11 @@ export interface PrinterStatus {
     chamber?: number;
     chamber_target?: number;
     chamber_heating?: boolean;  // Actual heater state from MQTT
+    // Home Assistant enclosure sensor readings
+    enclosure_temp_unit?: string;   // Unit from HA sensor (°C or °F)
+    enclosure_humidity?: number;    // Enclosure RH% from HA sensor
+    enclosure_humidity_unit?: string;
+    enclosure_fan_on?: boolean;     // HA fan entity state
   } | null;
   cover_url: string | null;
   hms_errors: HMSError[];
@@ -490,6 +505,16 @@ export interface PrinterCreate {
   camera_rotation?: number;
   plate_detection_enabled?: boolean;
   plate_detection_roi?: PlateDetectionROI;
+  // Enclosure sensor integration (Home Assistant)
+  enclosed?: boolean;
+  ha_temp_entity?: string | null;
+  ha_humidity_entity?: string | null;
+  ha_fan_entity?: string | null;
+  // WLED LED strip integration
+  wled_enabled?: boolean;
+  wled_host?: string | null;
+  wled_port?: number;
+  wled_api_key?: string | null;
 }
 
 // Plate Detection
@@ -651,6 +676,7 @@ export interface ArchiveStats {
   total_prints: number;
   successful_prints: number;
   failed_prints: number;
+  cancelled_prints: number;
   total_print_time_hours: number;
   total_filament_grams: number;
   total_cost: number;
@@ -1095,6 +1121,9 @@ export interface AppSettings {
   ha_url_from_env: boolean;
   ha_token_from_env: boolean;
   ha_env_managed: boolean;
+  // WLED LED strip integration
+  wled_enabled: boolean;
+  wled_state_map: string;
   // File Manager / Library settings
   library_archive_mode: 'always' | 'never' | 'ask';
   library_disk_warning_gb: number;
@@ -1746,6 +1775,28 @@ export interface HATestConnectionResult {
   message: string | null;
   error: string | null;
 }
+
+export interface WledTestConnectionResult {
+  success: boolean;
+  device_name: string | null;
+  version: string | null;
+  led_count: number | null;
+  error: string | null;
+}
+
+export interface WledPreset {
+  id: number;
+  name: string;
+}
+
+export interface WledStateConfig {
+  color: string;        // hex e.g. "#FF0000"
+  brightness: number;  // 0–255
+  effect_id: number;   // 0 = Solid
+  preset_id: number | null;
+}
+
+export type WledStateMap = Record<string, WledStateConfig>;
 
 export interface SmartPlugEnergy {
   power: number | null;  // Current watts
@@ -4438,6 +4489,20 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ url, token }),
     }),
+
+  // WLED
+  testWledConnection: (host: string, port: number, api_key?: string | null) =>
+    request<WledTestConnectionResult>('/wled/test-connection', {
+      method: 'POST',
+      body: JSON.stringify({ host, port, api_key: api_key || null }),
+    }),
+  getWledPresets: (host: string, port: number, api_key?: string | null) =>
+    request<WledPreset[]>(`/wled/presets?host=${encodeURIComponent(host)}&port=${port}${api_key ? `&api_key=${encodeURIComponent(api_key)}` : ''}`),
+  triggerWledTestEffect: (host: string, port: number, api_key?: string | null) =>
+    request<{ success: boolean }>('/wled/test-effect', {
+      method: 'POST',
+      body: JSON.stringify({ host, port, api_key: api_key || null }),
+    }),
   getHAEntities: (search?: string) => {
     const params = search ? `?search=${encodeURIComponent(search)}` : '';
     return request<HAEntity[]>(`/smart-plugs/ha/entities${params}`);
@@ -5853,7 +5918,67 @@ export const api = {
     request<{ success: boolean }>(`/local-presets/${id}`, { method: 'DELETE' }),
   refreshBaseProfileCache: () =>
     request<{ refreshed: number; failed: number; total: number }>('/local-presets/base-cache/refresh', { method: 'POST' }),
+
+  // ── Enclosure temp/humidity history ──────────────────────────────────────
+  getEnclosureHistory: (printerId: number, hours = 24) =>
+    request<EnclosureHistoryResponse>(`/enclosure/${printerId}/history?hours=${hours}`),
+
+  // ── Enclosure fan run history ─────────────────────────────────────────────
+  getEnclosureFanHistory: (printerId: number, hours = 24) =>
+    request<EnclosureFanHistoryResponse>(`/enclosure-fan/${printerId}/history?hours=${hours}`),
+
+  // ── Filament storage / dryer monitoring ───────────────────────────────────
+  listStorageUnits: () =>
+    request<StorageUnit[]>('/storage/'),
+  createStorageUnit: (data: StorageUnitCreate) =>
+    request<StorageUnit>('/storage/', { method: 'POST', body: JSON.stringify(data) }),
+  updateStorageUnit: (id: number, data: Partial<StorageUnitCreate & { is_active: boolean }>) =>
+    request<StorageUnit>(`/storage/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteStorageUnit: (id: number) =>
+    request<void>(`/storage/${id}`, { method: 'DELETE' }),
+  getStorageHistory: (id: number, hours = 24) =>
+    request<StorageHistoryResponse>(`/storage/${id}/history?hours=${hours}`),
 };
+
+// Filament storage / dryer monitoring types
+export interface StorageUnit {
+  id: number;
+  name: string;
+  unit_type: 'dryer' | 'storage';
+  ha_temp_entity: string | null;
+  ha_humidity_entity: string | null;
+  notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  current_temp: number | null;
+  current_humidity: number | null;
+  temp_unit: string;
+  humidity_unit: string;
+}
+
+export interface StorageUnitCreate {
+  name: string;
+  unit_type: 'dryer' | 'storage';
+  ha_temp_entity?: string | null;
+  ha_humidity_entity?: string | null;
+  notes?: string | null;
+}
+
+export interface StorageReadingPoint {
+  recorded_at: string;
+  temp: number | null;
+  humidity: number | null;
+}
+
+export interface StorageHistoryResponse {
+  unit_id: number;
+  readings: StorageReadingPoint[];
+  current_temp: number | null;
+  current_humidity: number | null;
+  temp_unit: string;
+  humidity_unit: string;
+}
 
 // AMS History types
 export interface AMSHistoryPoint {
@@ -6822,3 +6947,36 @@ export const bugReportApi = {
       method: 'POST',
     }),
 };
+
+// ── Enclosure sensor types ─────────────────────────────────────────────────
+
+export interface EnclosureReadingPoint {
+  recorded_at: string;
+  temp: number | null;
+  humidity: number | null;
+}
+
+export interface EnclosureHistoryResponse {
+  printer_id: number;
+  readings: EnclosureReadingPoint[];
+  current_temp: number | null;
+  current_humidity: number | null;
+  temp_unit: string;
+  humidity_unit: string;
+}
+
+export interface FanRunPoint {
+  started_at: string;
+  ended_at: string | null;
+  duration_seconds: number | null;
+}
+
+export interface EnclosureFanHistoryResponse {
+  printer_id: number;
+  runs: FanRunPoint[];
+  total_runtime_seconds: number;
+  run_count: number;
+  avg_duration_seconds: number | null;
+  longest_run_seconds: number | null;
+  is_on: boolean | null;
+}

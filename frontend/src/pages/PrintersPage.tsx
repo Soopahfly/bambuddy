@@ -70,12 +70,13 @@ import {
   MoreHorizontal,
   SlidersHorizontal,
   Stethoscope,
+  Lightbulb,
 } from 'lucide-react';
 
 import { useNavigate } from 'react-router-dom';
 import { api, discoveryApi, firmwareApi, withStreamToken, ApiError } from '../api/client';
 import { formatDateOnly, formatETA, formatDuration, parseUTCDate } from '../utils/date';
-import type { Printer, PrinterCreate, PrinterStatus, AMSUnit, DiscoveredPrinter, FirmwareUpdateInfo, FirmwareUploadStatus, LinkedSpoolInfo, SpoolAssignment, HMSError, InventorySpool, SmartPlug, PrinterDiagnosticResult } from '../api/client';
+import type { Printer, PrinterCreate, PrinterStatus, AMSUnit, DiscoveredPrinter, FirmwareUpdateInfo, FirmwareUploadStatus, LinkedSpoolInfo, SpoolAssignment, HMSError, InventorySpool, SmartPlug, PrinterDiagnosticResult, WledTestConnectionResult } from '../api/client';
 import { Card, CardContent } from '../components/Card';
 import { Button } from '../components/Button';
 import { ConfirmModal } from '../components/ConfirmModal';
@@ -86,6 +87,8 @@ import { MQTTDebugModal } from '../components/MQTTDebugModal';
 import { HMSErrorModal, filterKnownHMSErrors } from '../components/HMSErrorModal';
 import { PrinterQueueWidget } from '../components/PrinterQueueWidget';
 import { AMSHistoryModal } from '../components/AMSHistoryModal';
+import { EnclosureFanHistoryModal } from '../components/EnclosureFanHistoryModal';
+import { EnclosureHistoryModal } from '../components/EnclosureHistoryModal';
 import { FilamentHoverCard, EmptySlotHoverCard } from '../components/FilamentHoverCard';
 import { LinkSpoolModal } from '../components/LinkSpoolModal';
 import { AssignSpoolModal } from '../components/AssignSpoolModal';
@@ -1532,6 +1535,8 @@ function PrinterCard({
     amsLabel: string;
     mode: 'humidity' | 'temperature';
   } | null>(null);
+  const [showFanHistory, setShowFanHistory] = useState(false);
+  const [showEnclosureHistory, setShowEnclosureHistory] = useState(false);
   const [linkSpoolModal, setLinkSpoolModal] = useState<{
     tagUid: string;
     trayUuid: string;
@@ -4612,6 +4617,103 @@ function PrinterCard({
           </>
         )}
 
+        {/* Enclosure Section - shown when printer is marked as enclosed */}
+        {printer.enclosed && viewMode === 'expanded' && status && (
+          <div className="mt-3">
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-[10px] uppercase tracking-wider text-bambu-gray font-medium">
+                {t('printers.enclosure.sectionTitle')}
+              </span>
+              <div className="flex-1 h-px bg-bambu-dark-tertiary/30" />
+            </div>
+            <div className="flex gap-2">
+              {/* Temperature tile */}
+              <button
+                onClick={() => setShowEnclosureHistory(true)}
+                className="flex-1 p-2.5 bg-bambu-dark rounded-lg border border-bambu-dark-tertiary/30 hover:border-green-500/40 transition-colors group flex items-center gap-2.5 text-left"
+              >
+                <HeaterThermometer className="w-4 h-4 shrink-0" color="text-green-400" isHeating={false} />
+                <div className="min-w-0">
+                  <p className="text-[9px] text-bambu-gray uppercase tracking-wider group-hover:text-white transition-colors">{t('printers.enclosure.temperature')}</p>
+                  <p className="text-sm font-medium text-white">
+                    {status.temperatures?.chamber !== undefined
+                      ? `${Math.round(status.temperatures.chamber)}${status.temperatures.enclosure_temp_unit ?? '°C'}`
+                      : <span className="text-bambu-gray">—</span>}
+                  </p>
+                </div>
+              </button>
+              {/* Humidity tile */}
+              <button
+                onClick={() => setShowEnclosureHistory(true)}
+                className="flex-1 p-2.5 bg-bambu-dark rounded-lg border border-bambu-dark-tertiary/30 hover:border-blue-500/40 transition-colors group flex items-center gap-2.5 text-left"
+              >
+                <div className="shrink-0">
+                  <HumidityIndicator
+                    humidity={status.temperatures?.enclosure_humidity !== undefined ? Math.round(status.temperatures.enclosure_humidity) : 0}
+                    compact
+                  />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[9px] text-bambu-gray uppercase tracking-wider group-hover:text-white transition-colors">{t('printers.enclosure.humidity')}</p>
+                  <p className="text-sm font-medium text-white">
+                    {status.temperatures?.enclosure_humidity !== undefined
+                      ? `${Math.round(status.temperatures.enclosure_humidity)}%`
+                      : <span className="text-bambu-gray">—</span>}
+                  </p>
+                </div>
+              </button>
+            </div>
+            {/* Fan indicator */}
+            {printer.ha_fan_entity && (
+              <button
+                onClick={() => setShowFanHistory(true)}
+                className="mt-2 w-full flex items-center justify-between px-2.5 py-1.5 bg-bambu-dark rounded-lg border border-bambu-dark-tertiary/30 hover:border-cyan-500/40 transition-colors group"
+              >
+                <div className="flex items-center gap-2">
+                  <Wind className="w-3.5 h-3.5 text-bambu-gray group-hover:text-cyan-400 transition-colors" />
+                  <span className="text-[10px] uppercase tracking-wider text-bambu-gray group-hover:text-white transition-colors">{t('printers.enclosure.fan')}</span>
+                </div>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                  status.temperatures?.enclosure_fan_on === true
+                    ? 'bg-cyan-500/20 text-cyan-400'
+                    : 'bg-gray-500/20 text-gray-500'
+                }`}>
+                  {status.temperatures?.enclosure_fan_on === true ? t('printers.enclosure.fanOn') : t('printers.enclosure.fanOff')}
+                </span>
+              </button>
+            )}
+            {!printer.ha_temp_entity && !printer.ha_humidity_entity && !printer.ha_fan_entity && (
+              <p className="text-[10px] text-bambu-gray/60 mt-1.5">
+                {t('printers.enclosure.noEntitiesHint')}
+              </p>
+            )}
+            {/* Warn when entities are configured but no data has arrived yet */}
+            {(printer.ha_temp_entity || printer.ha_humidity_entity) &&
+              status.temperatures?.chamber === undefined &&
+              status.temperatures?.enclosure_humidity === undefined && (
+              <p className="text-[10px] text-yellow-500/70 mt-1.5">
+                {t('printers.enclosure.noDataHint')}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Enclosure Fan History Modal */}
+        <EnclosureFanHistoryModal
+          isOpen={showFanHistory}
+          onClose={() => setShowFanHistory(false)}
+          printerId={printer.id}
+          printerName={printer.name}
+        />
+
+        {/* Enclosure Temp/Humidity History Modal */}
+        <EnclosureHistoryModal
+          isOpen={showEnclosureHistory}
+          onClose={() => setShowEnclosureHistory(false)}
+          printerId={printer.id}
+          printerName={printer.name}
+        />
+
         {/* Smart Plug Controls - hidden in compact mode */}
         {smartPlug && viewMode === 'expanded' && (
           <div className="mt-4 pt-4 border-t border-bambu-dark-tertiary">
@@ -6307,6 +6409,8 @@ function EditPrinterModal({
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const { data: appSettings } = useQuery({ queryKey: ['settings'], queryFn: api.getSettings });
+  const haConfigured = !!(appSettings?.ha_url);
   const [form, setForm] = useState({
     name: printer.name,
     ip_address: printer.ip_address,
@@ -6314,7 +6418,17 @@ function EditPrinterModal({
     model: printer.model || '',
     location: printer.location || '',
     auto_archive: printer.auto_archive,
+    enclosed: printer.enclosed || false,
+    ha_temp_entity: printer.ha_temp_entity || '',
+    ha_humidity_entity: printer.ha_humidity_entity || '',
+    ha_fan_entity: printer.ha_fan_entity || '',
+    wled_enabled: printer.wled_enabled ?? false,
+    wled_host: printer.wled_host ?? '',
+    wled_port: printer.wled_port ?? 80,
+    wled_api_key: printer.wled_api_key ?? '',
   });
+  const [wledTestResult, setWledTestResult] = useState<WledTestConnectionResult | null>(null);
+  const [wledTestLoading, setWledTestLoading] = useState(false);
 
   // Setup-time pre-flight — same warn-on-save as the Add-Printer dialog, so an
   // edit that breaks connectivity (e.g. a mistyped IP) is caught before save.
@@ -6347,11 +6461,20 @@ function EditPrinterModal({
       model: form.model || undefined,
       location: form.location || undefined,
       auto_archive: form.auto_archive,
+      enclosed: form.enclosed,
+      ha_temp_entity: form.enclosed ? (form.ha_temp_entity || null) : null,
+      ha_humidity_entity: form.enclosed ? (form.ha_humidity_entity || null) : null,
+      ha_fan_entity: form.enclosed ? (form.ha_fan_entity || null) : null,
     };
     // Only include access_code if it was changed
     if (form.access_code) {
       data.access_code = form.access_code;
     }
+    // WLED fields
+    data.wled_enabled = form.wled_enabled;
+    data.wled_host = form.wled_host || null;
+    data.wled_port = form.wled_port || 80;
+    data.wled_api_key = form.wled_api_key || null;
     updateMutation.mutate(data);
   };
 
@@ -6484,6 +6607,180 @@ function EditPrinterModal({
                 {t('printers.modal.autoArchiveLabel')}
               </label>
             </div>
+
+            {/* Enclosed Printer */}
+            <div className="border-t border-bambu-dark-tertiary pt-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-white">{t('printers.modal.enclosed')}</span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.enclosed}
+                    onChange={(e) => setForm({ ...form, enclosed: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-bambu-dark-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-bambu-green" />
+                </label>
+              </div>
+              <p className="text-xs text-bambu-gray">{t('printers.modal.enclosedDescription')}</p>
+
+              {form.enclosed && haConfigured && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-bambu-gray mb-1">{t('printers.modal.haTempEntity')}</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none font-mono text-sm"
+                      value={form.ha_temp_entity}
+                      onChange={(e) => setForm({ ...form, ha_temp_entity: e.target.value })}
+                      placeholder="sensor.enclosure_temperature"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-bambu-gray mb-1">{t('printers.modal.haHumidityEntity')}</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none font-mono text-sm"
+                      value={form.ha_humidity_entity}
+                      onChange={(e) => setForm({ ...form, ha_humidity_entity: e.target.value })}
+                      placeholder="sensor.enclosure_humidity"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-bambu-gray mb-1">{t('printers.modal.haFanEntity')}</label>
+                    <input
+                      type="text"
+                      className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white focus:border-bambu-green focus:outline-none font-mono text-sm"
+                      value={form.ha_fan_entity}
+                      onChange={(e) => setForm({ ...form, ha_fan_entity: e.target.value })}
+                      placeholder="switch.enclosure_fan"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* WLED LED Strip */}
+            <div className="border-t border-bambu-dark-tertiary pt-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Lightbulb className="w-4 h-4 text-yellow-400" />
+                  <span className="text-sm font-medium text-white">{t('printers.wled.sectionTitle')}</span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={form.wled_enabled}
+                    onChange={(e) => setForm({ ...form, wled_enabled: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-11 h-6 bg-bambu-dark-tertiary peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500" />
+                </label>
+              </div>
+              <p className="text-xs text-bambu-gray">{t('printers.wled.sectionDescription')}</p>
+
+              {form.wled_enabled && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-[1fr_80px] gap-2">
+                    <div>
+                      <label className="block text-xs text-bambu-gray mb-1">{t('printers.wled.host')}</label>
+                      <input
+                        type="text"
+                        value={form.wled_host}
+                        onChange={(e) => { setForm({ ...form, wled_host: e.target.value }); setWledTestResult(null); }}
+                        placeholder={t('printers.wled.hostPlaceholder')}
+                        className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm focus:border-yellow-500 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-bambu-gray mb-1">{t('printers.wled.port')}</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={65535}
+                        value={form.wled_port}
+                        onChange={(e) => setForm({ ...form, wled_port: Number(e.target.value) })}
+                        className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm focus:border-yellow-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-bambu-gray mb-1">{t('printers.wled.apiKey')}</label>
+                    <input
+                      type="password"
+                      value={form.wled_api_key}
+                      onChange={(e) => setForm({ ...form, wled_api_key: e.target.value })}
+                      placeholder={t('printers.wled.apiKeyPlaceholder')}
+                      className="w-full px-3 py-2 bg-bambu-dark border border-bambu-dark-tertiary rounded-lg text-white text-sm focus:border-yellow-500 focus:outline-none"
+                    />
+                  </div>
+
+                  {form.wled_host && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          disabled={wledTestLoading}
+                          onClick={async () => {
+                            setWledTestLoading(true);
+                            setWledTestResult(null);
+                            try {
+                              const result = await api.testWledConnection(form.wled_host, form.wled_port, form.wled_api_key || null);
+                              setWledTestResult(result);
+                            } catch (e) {
+                              setWledTestResult({ success: false, device_name: null, version: null, led_count: null, error: e instanceof Error ? e.message : 'Unknown error' });
+                            } finally {
+                              setWledTestLoading(false);
+                            }
+                          }}
+                        >
+                          {wledTestLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+                          {t('printers.wled.testConnection')}
+                        </Button>
+
+                        {wledTestResult?.success && (
+                          <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => api.triggerWledTestEffect(form.wled_host, form.wled_port, form.wled_api_key || null)}
+                          >
+                            <Lightbulb className="w-3.5 h-3.5" />
+                            {t('printers.wled.testEffect')}
+                          </Button>
+                        )}
+                      </div>
+
+                      {wledTestResult && (
+                        <div className={`flex items-center gap-1.5 text-xs ${wledTestResult.success ? 'text-green-400' : 'text-red-400'}`}>
+                          {wledTestResult.success ? (
+                            <>
+                              <CheckCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                              <span>
+                                {t('printers.wled.deviceInfo', {
+                                  name: wledTestResult.device_name || 'WLED',
+                                  version: wledTestResult.version || '?',
+                                  leds: wledTestResult.led_count ?? '?',
+                                })}
+                              </span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-3.5 h-3.5 flex-shrink-0" />
+                              <span>{wledTestResult.error}</span>
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {saveWarning ? (
               <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 p-3 space-y-3">
                 <div className="flex items-start gap-2">
