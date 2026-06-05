@@ -608,5 +608,39 @@ describe('useWebSocket hook', () => {
 
       expect(ws.close).toHaveBeenCalled();
     });
+
+    it('does not reconnect after unmount', async () => {
+      vi.useFakeTimers();
+
+      const { useWebSocket } = await import('../../hooks/useWebSocket');
+
+      const { unmount } = renderHook(() => useWebSocket(), {
+        wrapper: createWrapper(queryClient),
+      });
+
+      const ws = getLatestWs()!;
+
+      // Open connection
+      act(() => {
+        ws.open();
+      });
+
+      const instanceCountBefore = wsInstances.length;
+
+      // Unmounting closes the socket, which fires onclose. The cleanup must
+      // suppress the reconnect — otherwise an unmounted hook would keep
+      // recreating sockets forever (the leak this guard fixes).
+      unmount();
+
+      // Advance well past the 3s reconnect delay.
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+
+      // No new WebSocket should have been created after unmount.
+      expect(wsInstances.length).toBe(instanceCountBefore);
+
+      vi.useRealTimers();
+    });
   });
 });
