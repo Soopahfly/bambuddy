@@ -3,6 +3,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useToast } from '../contexts/ToastContext';
 import { useTranslation } from 'react-i18next';
 
+// Upper bound on the throttled-processing queue. Drained at ~60 msg/s, so this
+// is several seconds of backlog — generous for normal bursts, but a hard cap
+// against unbounded growth if events ever outpace the drain rate.
+const MAX_QUEUED_MESSAGES = 500;
+
 interface WebSocketMessage {
   type: string;
   printer_id?: number;
@@ -14,6 +19,11 @@ interface WebSocketMessage {
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number | null>(null);
+  // Guards the reconnect loop against firing after the hook unmounts. ws.close()
+  // triggers onclose asynchronously — after the effect cleanup has already run —
+  // so without this flag the cleanup's close() would schedule a fresh reconnect
+  // on an unmounted component, leaking a socket that reconnects forever.
+  const shouldReconnectRef = useRef(true);
   const queryClient = useQueryClient();
   const [isConnected, setIsConnected] = useState(false);
   const lastMissingSpoolWarningRef = useRef<Map<number, string>>(new Map());
@@ -95,8 +105,13 @@ export function useWebSocket() {
         if (message.type === 'printer_status' && message.printer_id !== undefined && message.data) {
           handleMessageRef.current(message);
         } else {
-          // Queue other messages for throttled processing
+          // Queue other messages for throttled processing. Cap the queue so a
+          // sustained burst arriving faster than the ~60/s drain rate can't grow
+          // it without bound — drop the oldest, which are the least relevant.
           messageQueueRef.current.push(message);
+          if (messageQueueRef.current.length > MAX_QUEUED_MESSAGES) {
+            messageQueueRef.current.splice(0, messageQueueRef.current.length - MAX_QUEUED_MESSAGES);
+          }
           processMessageQueue();
         }
       } catch {
@@ -112,6 +127,12 @@ export function useWebSocket() {
       }
       setIsConnected(false);
       wsRef.current = null;
+
+      // Don't reconnect if the hook has unmounted — otherwise we'd leak a
+      // socket that reconnects forever, detached from any component.
+      if (!shouldReconnectRef.current) {
+        return;
+      }
 
       // Reconnect after 3 seconds
       reconnectTimeoutRef.current = window.setTimeout(() => {
@@ -375,9 +396,13 @@ export function useWebSocket() {
   }, [handleMessage]);
 
   useEffect(() => {
+    shouldReconnectRef.current = true;
     connect();
 
     return () => {
+      // Stop the reconnect loop before closing — close() fires onclose on a
+      // later tick, and without this it would schedule a post-unmount reconnect.
+      shouldReconnectRef.current = false;
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
       }
