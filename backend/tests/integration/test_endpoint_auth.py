@@ -171,3 +171,22 @@ class TestAuthenticationPatterns:
             for endpoint in endpoints:
                 response = await async_client.get(endpoint)
                 assert response.status_code == 200, f"Endpoint {endpoint} should be accessible"
+
+
+class TestPublicPatternMethodScoping:
+    """PUBLIC_API_PATTERNS exemptions must apply to safe methods only (GET/HEAD).
+
+    The middleware matches these patterns as substrings of the path, so without a
+    method guard a mutating route that merely *contains* a pattern token (e.g.
+    POST .../timelapse/scan, which contains "/timelapse") would be silently
+    exempted from the auth gateway. These tests lock in the GET/HEAD scoping.
+    """
+
+    @pytest.mark.asyncio
+    @pytest.mark.integration
+    async def test_mutating_route_with_pattern_token_requires_auth(self, async_client: AsyncClient):
+        """POST to a route containing a public-pattern token must still require auth."""
+        with patch("backend.app.core.auth.is_auth_enabled", return_value=True):
+            # "/timelapse" is a PUBLIC_API_PATTERNS token; this POST must NOT be exempt.
+            response = await async_client.post("/api/v1/archives/999999/timelapse/scan")
+        assert response.status_code == 401

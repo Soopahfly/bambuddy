@@ -5822,10 +5822,17 @@ async def auth_middleware(request, call_next):
         if path.startswith(prefix):
             return await call_next(request)
 
-    # Allow public patterns (read-only display data like thumbnails)
-    for pattern in PUBLIC_API_PATTERNS:
-        if pattern in path:
-            return await call_next(request)
+    # Allow public patterns (read-only display data like thumbnails).
+    # Restricted to safe methods: every PUBLIC_API_PATTERNS entry is a read-only
+    # resource fetched by the browser (<img>/<video> src) or a token download, so
+    # only GET/HEAD should be exempt. Without this guard the substring match also
+    # exempts mutating sub-routes that merely *contain* a pattern token — e.g.
+    # POST .../timelapse/upload, DELETE .../photos/{file}, POST/DELETE .../icon —
+    # silently dropping them out of the auth gateway (defense-in-depth bypass).
+    if request.method in ("GET", "HEAD"):
+        for pattern in PUBLIC_API_PATTERNS:
+            if pattern in path:
+                return await call_next(request)
 
     # Check if auth is enabled. Fail CLOSED on any exception during the
     # probe — GHSA-6mf4-q26m-47pv: the previous fail-open path here let
